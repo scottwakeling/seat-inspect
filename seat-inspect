@@ -446,8 +446,14 @@ if __name__ == "__main__":
 
     cur_session = sessions.get(login_iface.GetSessionByPID(os.getpid()), None)
     log.info("Current session: %s", cur_session.id if cur_session else "unknown")
-    cur_user = users.get(login_iface.GetUserByPID(os.getpid()), None)
-    log.info("Current user: %s", cur_user.name if cur_user else "unknown")
+    try:
+        cur_user = users.get(login_iface.GetUserByPID(os.getpid()), None)
+        log.info("Current user: %s", cur_user.name if cur_user else "unknown")
+    except dbus.exceptions.DBusException as e:
+        if e.get_dbus_name() == "org.freedesktop.DBus.Error.AccessDenied":
+            log.info("GetUserByPID not supported, you are probably running logind older than v208, no big deal.")
+        else:
+            log.warn("GetUserByPID failed: %s (%s)", e.get_dbus_name(), e.get_dbus_message())
 
     log.info("System capabilities:")
     descs = {
