@@ -9,4 +9,7 @@ something out of place.
 
 The intent of reading the code is to have an idea of how to use these
 facilities: the code has been written to be straightforward and is annotated
-with relevant bits from the logind API documentation.
+with relevant bits from the [logind API documentation](http://www.freedesktop.org/wiki/Software/systemd/logind/).
+
+See also [here](http://www.freedesktop.org/wiki/Software/systemd/multiseat/)
+for general definitions.
