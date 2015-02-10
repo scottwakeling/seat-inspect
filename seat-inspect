@@ -16,12 +16,389 @@ import logging
 from collections import namedtuple
 import sys
 import os
+import time
 
 log = logging.getLogger()
 
-Seat = namedtuple("Seat", ("id, path"))
-User = namedtuple("User", ("id, name, path"))
-Session = namedtuple("Session", ("id", "uid", "username", "seat_id", "path"))
+system_bus = None
+
+def format_elapsed(seconds):
+    if seconds > 86400:
+        return "{}h".format(round(seconds / 86400))
+    elif seconds > 3600:
+        return "{}h".format(round(seconds / 3600))
+    elif seconds > 60:
+        return "{}m".format(round(seconds / 60))
+    else:
+        return "{}s".format(round(seconds))
+
+# A seat consists of all hardware devices assigned to a specific workplace.
+# It consists of at least one graphics device, and usually also includes
+# keyboard, mouse. It can also include video cameras, sound cards and more.
+# Seats are identified by seat names, which are short strings (<= 64chars),
+# that start with the four characters "seat" followed by at least one more
+# character from the range a-zA-Z0-9, "_" and "-". They are suitable for
+# inclusion in file names. Seat names may or may not be stable and may be
+# reused if a seat becomes available again.
+class Seat:
+    """
+    Get and hold information about a seat
+    """
+    def __init__(self, id, path):
+        self.id = id
+        self.path = path
+
+        # Get the seat object from the login manager
+        self.dbus_obj = system_bus.get_object("org.freedesktop.login1", self.path)
+        # Read the seat API properties of the object, using the D-Bus
+        # properties API
+        self.dbus_props = self.dbus_obj.GetAll("org.freedesktop.login1.Seat",
+                                               dbus_interface="org.freedesktop.DBus.Properties")
+
+        # Pythonize the d-bus properties
+
+        # The Sessions array is an array of all current sessions of this seat, each
+        # encoded in a 2-tuple consisting of the ID and the object path
+        self.sessions = self.dbus_props["Sessions"]
+
+        # ActiveSession encodes the currently active session if there is one. It is a
+        # 2-tuple consisting of session id and object path
+        self.active_session = self.dbus_props["ActiveSession"]
+
+        # CanMultiSession encodes whether the session is multi-session capable
+        self.can_multisession = bool(self.dbus_props["CanMultiSession"])
+
+        # CanTTY whether it is suitable for text logins
+        self.can_tty = bool(self.dbus_props["CanTTY"])
+
+        # CanGraphical whether it is suitable for graphical sessions
+        self.can_graphical = bool(self.dbus_props["CanGraphical"])
+
+        # The IdleHint, IdleSinceHint, IdleSinceHintMonotonic properties encode
+        # the idle state, similar to the one exposed on the Manager object, but
+        # specific for this seat
+        self.idle_hint = bool(self.dbus_props["IdleHint"])
+        self.idle_since_hint = self.dbus_props["IdleSinceHint"]
+        self.idle_since_hint_monotonic = self.dbus_props["IdleSinceHintMonotonic"]
+
+    def log_summary(self, prefix=" - "):
+        """
+        Return a one-line summary of all the properties of this seat
+        """
+        desc = []
+
+        # Format ID
+        desc.append("id: {}".format(seat.id))
+
+        # Format list of available session, marking the active one with an
+        # asterisk
+        seat_sessions = []
+        for sess_id, sess_path in self.sessions:
+            if sess_id == self.active_session[0]:
+                seat_sessions.append("*" + sess_id)
+            else:
+                seat_sessions.append(sess_id)
+        if seat_sessions:
+            desc.append("sessions: " + ",".join(seat_sessions))
+        else:
+            desc.append("no sessions")
+
+        # Format capabilities
+        if self.can_multisession:
+            desc.append("multisession")
+        else:
+            desc.appned("no multisession")
+
+        if self.can_tty:
+            desc.append("has tty")
+        else:
+            desc.append("no tty")
+
+        if self.can_graphical:
+            desc.append("graphical")
+        else:
+            desc.append("non graphical")
+
+        # Format idle time
+        desc.append("idle: {} since {} {}".format(self.idle_hint, self.idle_since_hint, self.idle_since_hint_monotonic))
+
+        log.info("%s%s", prefix, ", ".join(desc))
+
+
+# A user (the way we know it on Unix) corresponds to the person using a computer.
+# A single user can have opened multiple sessions at the same time. A user is
+# identified by a numeric user id (UID) or a user name (string).
+class User:
+    """
+    Get and hold information about a user
+    """
+    def __init__(self, id, name, path):
+        self.id = id
+        self.name = name
+        self.path = path
+
+        # Get the seat object from the login manager
+        self.dbus_obj = system_bus.get_object("org.freedesktop.login1", self.path)
+        # Read the user API properties of the object, using the D-Bus
+        # properties API
+        self.dbus_props = self.dbus_obj.GetAll("org.freedesktop.login1.User",
+                                               dbus_interface="org.freedesktop.DBus.Properties")
+
+        # The UID and GID properties encode the Unix UID and primary GID of the
+        # user.
+        self.uid = self.dbus_props["UID"]
+        self.gid = self.dbus_props["GID"]
+
+        # The Name property encodes the user name.
+
+        # Timestamp and TimestampMonotonic encode the login time of the user in
+        # usec since the epoch, in the CLOCK_REALTIME resp. CLOCK_MONOTONIC
+        # clocks.
+        self.timestamp = self.dbus_props["Timestamp"]
+        self.timestamp_monotonic = self.dbus_props["TimestampMonotonic"]
+
+        # RuntimePath encodes the runtime path of the user, i.e.
+        # $XDG_RUNTIME_DIR, for details see the XDG Basedir Specification.
+        #
+        # $XDG_RUNTIME_DIR defines the base directory relative to which
+        # user-specific non-essential runtime files and other file objects
+        # (such as sockets, named pipes, ...) should be stored. The directory
+        # MUST be owned by the user, and he MUST be the only one having read
+        # and write access to it. Its Unix access mode MUST be 0700.
+        # (http://standards.freedesktop.org/basedir-spec/basedir-spec-latest.html)
+        self.runtime_path = self.dbus_props["RuntimePath"]
+
+        # Service contains the name of the user systemd service unit name of
+        # this user. Each logged in user gets a user service unit assigned that
+        # runs a user systemd instance. This is usually an instance of
+        # user@.service.
+        self.service = self.dbus_props["Service"]
+
+        # Slice contains the name of the user systemd slice unit name of this
+        # user. Each logged in user gets a private slice.
+        self.slice = self.dbus_props["Slice"]
+
+        # Display encodes which graphical session should be used as primary UI
+        # display for the use. It is a structure encoding session ID and object
+        # path of the session to use.
+        self.display = self.dbus_props["Display"]
+
+        # State encodes the user state, one of "offline", "lingering",
+        # "online", "active", "closing". See sd_uid_get_state(3) for more
+        # information about the states.
+        #
+        # The following states are currently known: "offline" (user not logged
+        # in at all), "lingering" (user not logged in, but some user services
+        # running), "online" (user logged in, but not active, i.e. has no
+        # session in the foreground), "active" (user logged in, and has at
+        # least one active session, i.e. one session in the foreground),
+        # "closing" (user not logged in, and not lingering, but some processes
+        # are still around). In the future additional states might be defined,
+        # client code should be written to be robust in regards to additional
+        # state strings being returned.
+        # (http://www.freedesktop.org/software/systemd/man/sd_uid_get_state.html)
+        self.state = self.dbus_props["State"]
+
+        # Sessions is an array of structures encoding all current sessions of
+        # the user. Each structure consists of ID and object path.
+        self.sessions = self.dbus_props["Sessions"]
+
+        # The IdleHint, IdleSinceHint, IdleSinceHintMonotonic properties encode
+        # the idle hint state of the user, similar to the Manager's properties,
+        # but specific for this user.
+        self.idle_hint = bool(self.dbus_props["IdleHint"])
+        self.idle_since_hint = self.dbus_props["IdleSinceHint"]
+        self.idle_since_hint_monotonic = self.dbus_props["IdleSinceHintMonotonic"]
+
+    def log_summary(self, prefix=" - "):
+        desc = []
+
+        desc.append("name: {}".format(self.name))
+        desc.append("uid: {}".format(self.id))
+        desc.append("gid: {}".format(self.gid))
+        desc.append("display: {}".format(self.display[0]))
+        desc.append("sessions: {}".format(",".join(x[0] for x in self.sessions)))
+        log.info("%s%s", prefix, ", ".join(desc))
+
+        # Replace prefix with just indentation
+        prefix = " " * len(prefix)
+
+        desc = []
+        elapsed = time.time() - self.timestamp / 1000000
+        desc.append("login time: " + format_elapsed(elapsed))
+        desc.append("idle: {} since {} {}".format(self.idle_hint, self.idle_since_hint, self.idle_since_hint_monotonic))
+        log.info("%s%s", prefix, ", ".join(desc))
+
+        desc = []
+        desc.append("XDG_RUNTIME_DIR: {}".format(self.runtime_path))
+        desc.append("systemd service: {}".format(self.service))
+        desc.append("systemd slice: {}".format(self.slice))
+        log.info("%s%s", prefix, ", ".join(desc))
+
+        desc = []
+        state_desc = {
+            "offline": "user not logged in",
+            "lingering": "user not logged in, but some user services running",
+            "online": "user logged in, but not active, i.e. has no session in the foreground",
+            "active": "user logged in, and has at least one active session, i.e. one session in the foreground",
+            "closing": "user not logged in, and not lingering, but some processes are still around",
+        }
+        log.info("%sstate: %s (%s)", prefix, self.state, state_desc.get(self.state, "description unknown"))
+
+
+# A session is defined by the time a user is logged in until he logs out. A
+# session is bound to one or no seats (the latter for 'virtual' ssh logins).
+# Multiple sessions can be attached to the same seat, but only one of them can
+# be active, the others are in the background. A session is identified by a
+# short string. systemd ensures that audit sessions are identical to systemd
+# sessions, and uses the audit session id as session id in systemd (if auditing
+# is enabled). The session identifier too shall be considered a short string
+# (<= 64chars) consisting only of a-zA-Z0-9, "_" and "-", suitable for
+# inclusion in a file name. Session IDs are unique on the local machine and are
+# never reused as long as the machine is online.
+class Session:
+    """
+    Get and hold information about a session
+    """
+    def __init__(self, id, uid, user, seat_id, path):
+        # Id encodes the session ID.
+        self.id = id
+        # User encodes the user ID of the user this session belongs to. This is
+        # a structure encoding the Unix UID and the object path.
+        self.uid = uid
+        # Name encodes the user name.
+        self.user = user
+        self.seat_id = seat_id
+        self.path = path
+
+        # Get the seat object from the login manager
+        self.dbus_obj = system_bus.get_object("org.freedesktop.login1", self.path)
+        # Read the user API properties of the object, using the D-Bus
+        # properties API
+        self.dbus_props = self.dbus_obj.GetAll("org.freedesktop.login1.Session",
+                                               dbus_interface="org.freedesktop.DBus.Properties")
+
+
+        # Timestamp and TimestampMonotonic encode the usec timestamp since the
+        # epoch when the session was created, in CLOCK_REALTIME resp.
+        # CLOCK_MONOTONIC.
+        self.timestamp = self.dbus_props["Timestamp"]
+        self.timestamp_monotonic = self.dbus_props["TimestampMonotonic"]
+
+        # Seat encodes the seat this session belongs to, if there is any. This
+        # is a structure consisting of the ID and the seat object path.
+        self.seat = self.dbus_props["Seat"]
+
+        # TTY encodes the kernel TTY path of the session if this is a text
+        # login. If not this is an empty string.
+        self.tty = self.dbus_props["TTY"]
+
+        # Display encodes the X11 display name if this is a graphical login. If
+        # not this is an empty string.
+        self.display = self.dbus_props["Display"]
+
+        # Remote encodes whether the session is local or remote.
+        self.remote = bool(self.dbus_props["Remote"])
+
+        # RemoteHost and RemoteUser encode the remote host and user if this is
+        # a remote session, or an empty string otherwise.
+        self.remote_host = self.dbus_props["RemoteHost"]
+        self.remote_user = self.dbus_props["RemoteUser"]
+
+        # Service encodes the PAM service name that registered the session.
+        self.service = self.dbus_props["Service"]
+
+        # Scope contains the systemd scope unit name of this session.
+        self.scope = self.dbus_props["Scope"]
+
+        # Leader encodes the PID of the process that registered the session.
+        self.leader = self.dbus_props["Leader"]
+
+        # Audit encodes the Kernel Audit session ID of the session, if auditing is available.
+        self.audit = self.dbus_props["Audit"]
+
+        # Type encodes the session type. It's one of "unspecified" (for cron
+        # PAM sessions and suchlike), "tty" (for text logins) or "x11" (for
+        # graphical logins).
+        self.type = self.dbus_props["Type"]
+
+        # Class encodes the session class. It's one of "user" (for normal user
+        # sessions), "greeter" (for display manager pseudo-sessions),
+        # "lock-screen" (for display lock screens).
+        self.session_class = self.dbus_props["Class"]
+
+        # Active is a boolean that is true if the session is active, i.e.
+        # currently in the foreground. This field is semi-redundant due to
+        # State.
+        self.active = bool(self.dbus_props["Active"])
+
+        # State encodes the session state and one of "online", "active",
+        # "closing". See sd_session_get_state(3) for more information about the
+        # states.
+        #
+        # The following states are currently known: "online" (session logged
+        # in, but session not active, i.e. not in the foreground), "active"
+        # (session logged in and active, i.e. in the foreground), "closing"
+        # (session nominally logged out, but some processes belonging to it are
+        # still around). In the future additional states might be defined,
+        # client code should be written to be robust in regards to additional
+        # state strings being returned.
+        # (http://stuff.onse.fi/man?program=sd_session_get_state&section=3)
+        self.state = self.dbus_props["State"]
+
+        # IdleHint, IdleSinceHint, IdleSinceHintMonotonic encapsulate the idle
+        # hint state of this session, similar to how the respective properties
+        # on the manager object do it for the whole system.
+        self.idle_hint = bool(self.dbus_props["IdleHint"])
+        self.idle_since_hint = self.dbus_props["IdleSinceHint"]
+        self.idle_since_hint_monotonic = self.dbus_props["IdleSinceHintMonotonic"]
+
+    def log_summary(self, prefix=" - "):
+        desc = []
+        desc.append("id: {}".format(self.id))
+        desc.append("type: {}".format(self.type))
+        desc.append("class: {}".format(self.session_class))
+        desc.append("uid: {}".format(self.uid))
+        desc.append("user: {}".format(self.user))
+        desc.append("seat: {}".format(self.seat_id))
+        desc.append("tty: {}".format(self.tty))
+        desc.append("display: {}".format(self.display))
+        log.info("%s%s", prefix, ", ".join(desc))
+
+        # Replace prefix with just indentation
+        prefix = " " * len(prefix)
+
+        if self.remote:
+            desc = []
+            desc.append("remote host: {}".format(self.remote_host))
+            desc.append("remote user: {}".format(self.remote_user))
+            log.info("%s%s", prefix, ", ".join(desc))
+
+        desc = []
+        elapsed = time.time() - self.timestamp / 1000000
+        desc.append("age: " + format_elapsed(elapsed))
+        desc.append("idle: {} since {} {}".format(self.idle_hint, self.idle_since_hint, self.idle_since_hint_monotonic))
+        log.info("%s%s", prefix, ", ".join(desc))
+
+        desc = []
+        desc.append("leader pid: {}".format(self.leader))
+        desc.append("service: {}".format(self.service))
+        desc.append("scope: {}".format(self.scope))
+        desc.append("audit: {}".format(self.audit))
+        log.info("%s%s", prefix, ", ".join(desc))
+
+        desc = []
+        desc.append("active: {}".format(self.active))
+
+        state_desc = {
+            "online": "session logged in, but session not active, i.e. not in the foreground",
+            "active": "session logged in and active, i.e. in the foreground",
+            "closing": "session nominally logged out, but some processes belonging to it are still around",
+        }
+        desc.append("state: {} ({})".format(self.state, state_desc.get(self.state, "description unknown")))
+        log.info("%s%s", prefix, ", ".join(desc))
+
+
 Inhibitor = namedtuple("Inhibitor", ("what", "who", "why", "mode", "uid", "pid"))
 
 if __name__ == "__main__":
@@ -29,7 +406,7 @@ if __name__ == "__main__":
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     args = parser.parse_args()
 
-    FORMAT = "%(levelname).1s: %(message)s"
+    FORMAT = "%(message)s"
     if args.verbose:
         logging.basicConfig(level=logging.INFO, stream=sys.stderr, format=FORMAT)
     else:
@@ -47,83 +424,32 @@ if __name__ == "__main__":
     login_props = login_obj.GetAll("org.freedesktop.login1.Manager", dbus_interface="org.freedesktop.DBus.Properties")
 
     # List available seats
-    #
-    # A seat consists of all hardware devices assigned to a specific workplace.
-    # It consists of at least one graphics device, and usually also includes
-    # keyboard, mouse. It can also include video cameras, sound cards and more.
-    # Seats are identified by seat names, which are short strings (<= 64chars),
-    # that start with the four characters "seat" followed by at least one more
-    # character from the range a-zA-Z0-9, "_" and "-". They are suitable for
-    # inclusion in file names. Seat names may or may not be stable and may be
-    # reused if a seat becomes available again.
-    #
     log.info("Available seats:")
     seats = {}
     for seat in (Seat(*x) for x in login_iface.ListSeats()):
-        seats[seat.id] = seat
-        seat_obj = system_bus.get_object("org.freedesktop.login1", seat.path)
-        seat_props = seat_obj.GetAll("org.freedesktop.login1.Seat", dbus_interface="org.freedesktop.DBus.Properties")
-        desc = []
-
-        desc.append("id: {}".format(seat.id))
-
-        # The Sessions array is an array of all current sessions of this seat, each
-        # encoded in a structure consisting of the ID and the object path
-        seat_sessions = []
-        for sess_id, sess_path in seat_props["Sessions"]:
-            # ActiveSession encodes the currently active session if there is one. It is a
-            # structure consisting of session id and object path
-            if sess_id == seat_props["ActiveSession"][0]:
-                seat_sessions.append("*" + sess_id)
-            else:
-                seat_sessions.append(sess_id)
-        if seat_sessions:
-            desc.append("sessions: " + ",".join(seat_sessions))
-        else:
-            desc.append("no sessions")
-
-        # CanMultiSession encodes whether the session is multi-session capable
-        if seat_props["CanMultiSession"]:
-            desc.append("multisession")
-        else:
-            desc.appned("no multisession")
-
-        # CanTTY whether it is suitable for text logins
-        if seat_props["CanTTY"]:
-            desc.append("has tty")
-        else:
-            desc.append("no tty")
-
-        # CanGraphical whether it is suitable for graphical sessions
-        if seat_props["CanGraphical"]:
-            desc.append("graphical")
-        else:
-            desc.append("non graphical")
-
-        # The IdleHint, IdleSinceHint, IdleSinceHint properties encode the idle state,
-        # similar to the one exposed on the Manager object, but specific for this seat
-        desc.append("idle: {}".format(seat_props["IdleHint"]))
-        desc.append("idle since: {} {}".format(seat_props["IdleSinceHint"], seat_props["IdleSinceHintMonotonic"]))
-
-        log.info(" - %s: %s", seat.id, ", ".join(desc))
+        seats[seat.path] = seat
+        seat.log_summary()
 
     # List currently logged in users
+    log.info("Users logged in:")
     users = {}
     for user in (User(*x) for x in login_iface.ListUsers()):
-        users[user.id] = user
+        users[user.path] = user
+        user.log_summary()
 
     # List existing sessions
+    log.info("Existing sessions:")
     sessions = {}
     for session in (Session(*x) for x in login_iface.ListSessions()):
-        sessions[session.id] = session
+        sessions[session.path] = session
+        session.log_summary()
 
-    log.info("Users logged in: %s", " ".join(x.name for x in sorted(users.values())))
-    log.info("Existing sessions: %s", " ".join(sorted(sessions.keys())))
+    cur_session = sessions.get(login_iface.GetSessionByPID(os.getpid()), None)
+    log.info("Current session: %s", cur_session.id if cur_session else "unknown")
+    cur_user = users.get(login_iface.GetUserByPID(os.getpid()), None)
+    log.info("Current user: %s", cur_user.name if cur_user else "unknown")
 
-    #print(login_iface.GetSessionByPID(os.getpid()))
-    #print(login_iface.GetUserByPID(os.getpid()))
-
-    log.info("Current capabilities:")
+    log.info("System capabilities:")
     descs = {
         "na": "not supported by hardware, kernel or drivers",
         "yes": "supported, the current user may execute it without further authentication",
@@ -152,8 +478,7 @@ if __name__ == "__main__":
     else:
         log.info("No inhibitor locks currently present.")
 
-    log.info("System idle: %s", login_props.get("IdleHint", None))
-    log.info("System idle since: %s %s", login_props.get("IdleSinceHint", None), login_props.get("IdleSinceHintMonotonic", None))
+    log.info("System idle: %s since %s %s", login_props.get("IdleHint", None), login_props.get("IdleSinceHint", None), login_props.get("IdleSinceHintMonotonic", None))
     log.info("Active block locks: %s", login_props.get("BlockInhibited", None))
     log.info("Active delay locks: %s", login_props.get("DelayInhibited", None))
     log.info("Preparing for shutdown: %s", login_props.get("PreparingForShutdown", None))
