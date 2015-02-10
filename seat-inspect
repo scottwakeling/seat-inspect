@@ -408,9 +408,9 @@ if __name__ == "__main__":
 
     FORMAT = "%(message)s"
     if args.verbose:
-        logging.basicConfig(level=logging.INFO, stream=sys.stderr, format=FORMAT)
+        logging.basicConfig(level=logging.INFO, stream=sys.stdout, format=FORMAT)
     else:
-        logging.basicConfig(level=logging.WARN, stream=sys.stderr, format=FORMAT)
+        logging.basicConfig(level=logging.WARN, stream=sys.stdout, format=FORMAT)
 
     session_bus = dbus.SessionBus()
     system_bus = dbus.SystemBus()
