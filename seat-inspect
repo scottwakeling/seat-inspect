@@ -489,3 +489,22 @@ if __name__ == "__main__":
     log.info("Active delay locks: %s", login_props.get("DelayInhibited", None))
     log.info("Preparing for shutdown: %s", login_props.get("PreparingForShutdown", None))
     log.info("Preparing for sleep: %s", login_props.get("PreparingForSleep", None))
+
+    # Run troubleshooting checks
+    # https://wiki.archlinux.org/index.php/General_troubleshooting#Session_permissions
+    env_session_id = os.environ.get("XDG_SESSION_ID", None)
+    if env_session_id is None:
+        log.warn("XDG_SESSION_ID is not set: you may have a display manager or PAM setup with missing or incomplete session support")
+    elif str(cur_session.id) != env_session_id:
+        log.warn("XDG_SESSION_ID is %s but the login manager thinks that the current session id is %s", env_session_id, cur_session.id)
+    elif cur_session.remote:
+        log.warn("The current session is marked as remote (user %s host %s):"
+                 " shutdown, suspend, network-manager and so on may not work without requiring a password",
+                 cur_session.remote_user, cur_session.remote_host)
+    elif not cur_session.active:
+        log.warn("The current session state is not active (state: %s):"
+                 " shutdown, suspend, network-manager and so on may not work without requiring a password",
+                cur_session.state)
+    else:
+        log.info("The current session is local and active: shutdown, suspend, network-manager and so on"
+                 " should be ok")
