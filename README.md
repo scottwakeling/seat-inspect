@@ -3,7 +3,7 @@
 seat-inspect tries to make the status of the login/seat system visible, to help
 with understanding and troubleshooting.
 
-The intent of running the code is to have an verview of the system status, both
+The intent of running the code is to have an overview of the system status, both
 to see what the new facilities are about, and to figure out if there is
 something out of place.
 
