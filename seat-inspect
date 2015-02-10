@@ -1,0 +1,160 @@
+#!/usr/bin/env python3
+
+# Copyright 2015 Enrico Zini <enrico@enricozini.org>
+# License: GPL-3
+#
+# Tries to make the status of the login/seat system visible, to help with
+# understanding and troubleshooting.
+#
+# Further reading:
+# http://www.freedesktop.org/wiki/Software/systemd/multiseat/
+# http://www.freedesktop.org/wiki/Software/systemd/logind/
+
+import dbus
+import argparse
+import logging
+from collections import namedtuple
+import sys
+import os
+
+log = logging.getLogger()
+
+Seat = namedtuple("Seat", ("id, path"))
+User = namedtuple("User", ("id, name, path"))
+Session = namedtuple("Session", ("id", "uid", "username", "seat_id", "path"))
+Inhibitor = namedtuple("Inhibitor", ("what", "who", "why", "mode", "uid", "pid"))
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Inspect the seat API.')
+    parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
+    args = parser.parse_args()
+
+    FORMAT = "%(levelname).1s: %(message)s"
+    if args.verbose:
+        logging.basicConfig(level=logging.INFO, stream=sys.stderr, format=FORMAT)
+    else:
+        logging.basicConfig(level=logging.WARN, stream=sys.stderr, format=FORMAT)
+
+    session_bus = dbus.SessionBus()
+    system_bus = dbus.SystemBus()
+
+    # Get a proxy to the system login object
+    login_obj = system_bus.get_object("org.freedesktop.login1", "/org/freedesktop/login1")
+
+    # Talk to it using the login Manager API
+    login_iface = dbus.Interface(login_obj, dbus_interface="org.freedesktop.login1.Manager")
+    # Also use the dbus Properties API to get a list of its properties
+    login_props = login_obj.GetAll("org.freedesktop.login1.Manager", dbus_interface="org.freedesktop.DBus.Properties")
+
+    # List available seats
+    #
+    # A seat consists of all hardware devices assigned to a specific workplace.
+    # It consists of at least one graphics device, and usually also includes
+    # keyboard, mouse. It can also include video cameras, sound cards and more.
+    # Seats are identified by seat names, which are short strings (<= 64chars),
+    # that start with the four characters "seat" followed by at least one more
+    # character from the range a-zA-Z0-9, "_" and "-". They are suitable for
+    # inclusion in file names. Seat names may or may not be stable and may be
+    # reused if a seat becomes available again.
+    #
+    log.info("Available seats:")
+    seats = {}
+    for seat in (Seat(*x) for x in login_iface.ListSeats()):
+        seats[seat.id] = seat
+        seat_obj = system_bus.get_object("org.freedesktop.login1", seat.path)
+        seat_props = seat_obj.GetAll("org.freedesktop.login1.Seat", dbus_interface="org.freedesktop.DBus.Properties")
+        desc = []
+
+        desc.append("id: {}".format(seat.id))
+
+        # The Sessions array is an array of all current sessions of this seat, each
+        # encoded in a structure consisting of the ID and the object path
+        seat_sessions = []
+        for sess_id, sess_path in seat_props["Sessions"]:
+            # ActiveSession encodes the currently active session if there is one. It is a
+            # structure consisting of session id and object path
+            if sess_id == seat_props["ActiveSession"][0]:
+                seat_sessions.append("*" + sess_id)
+            else:
+                seat_sessions.append(sess_id)
+        if seat_sessions:
+            desc.append("sessions: " + ",".join(seat_sessions))
+        else:
+            desc.append("no sessions")
+
+        # CanMultiSession encodes whether the session is multi-session capable
+        if seat_props["CanMultiSession"]:
+            desc.append("multisession")
+        else:
+            desc.appned("no multisession")
+
+        # CanTTY whether it is suitable for text logins
+        if seat_props["CanTTY"]:
+            desc.append("has tty")
+        else:
+            desc.append("no tty")
+
+        # CanGraphical whether it is suitable for graphical sessions
+        if seat_props["CanGraphical"]:
+            desc.append("graphical")
+        else:
+            desc.append("non graphical")
+
+        # The IdleHint, IdleSinceHint, IdleSinceHint properties encode the idle state,
+        # similar to the one exposed on the Manager object, but specific for this seat
+        desc.append("idle: {}".format(seat_props["IdleHint"]))
+        desc.append("idle since: {} {}".format(seat_props["IdleSinceHint"], seat_props["IdleSinceHintMonotonic"]))
+
+        log.info(" - %s: %s", seat.id, ", ".join(desc))
+
+    # List currently logged in users
+    users = {}
+    for user in (User(*x) for x in login_iface.ListUsers()):
+        users[user.id] = user
+
+    # List existing sessions
+    sessions = {}
+    for session in (Session(*x) for x in login_iface.ListSessions()):
+        sessions[session.id] = session
+
+    log.info("Users logged in: %s", " ".join(x.name for x in sorted(users.values())))
+    log.info("Existing sessions: %s", " ".join(sorted(sessions.keys())))
+
+    #print(login_iface.GetSessionByPID(os.getpid()))
+    #print(login_iface.GetUserByPID(os.getpid()))
+
+    log.info("Current capabilities:")
+    descs = {
+        "na": "not supported by hardware, kernel or drivers",
+        "yes": "supported, the current user may execute it without further authentication",
+        "no": "supported, the current user is not allowed to execute it",
+        "challenge": "supported, the current user can only execute it after authorization",
+    }
+    can_poweroff = login_iface.CanPowerOff()
+    can_reboot = login_iface.CanReboot()
+    can_suspend = login_iface.CanSuspend()
+    can_hibernate = login_iface.CanHibernate()
+    can_hybridsleep = login_iface.CanHybridSleep()
+    log.info(" - power off: %s: %s", can_poweroff, descs[can_poweroff])
+    log.info(" - reboot: %s: %s", can_reboot, descs[can_reboot])
+    log.info(" - suspend: %s: %s", can_suspend, descs[can_suspend])
+    log.info(" - hibernate: %s: %s", can_hibernate, descs[can_hibernate])
+    log.info(" - hybrid sleep: %s: %s", can_hybridsleep, descs[can_hybridsleep])
+
+    inhibitors = []
+    for inhibitor in (Inhibitor(*x) for x in login_iface.ListInhibitors()):
+        inhibitors.append(inhibitor)
+
+    if inhibitors:
+        log.info("Current inhibitor locks:")
+        for i in inhibitors:
+            log.info(" - %s (%s) by %s (%s) uid %d pid %d", i.what, i.mode, i.who, i.why, i.uid, i.pid)
+    else:
+        log.info("No inhibitor locks currently present.")
+
+    log.info("System idle: %s", login_props.get("IdleHint", None))
+    log.info("System idle since: %s %s", login_props.get("IdleSinceHint", None), login_props.get("IdleSinceHintMonotonic", None))
+    log.info("Active block locks: %s", login_props.get("BlockInhibited", None))
+    log.info("Active delay locks: %s", login_props.get("DelayInhibited", None))
+    log.info("Preparing for shutdown: %s", login_props.get("PreparingForShutdown", None))
+    log.info("Preparing for sleep: %s", login_props.get("PreparingForSleep", None))
