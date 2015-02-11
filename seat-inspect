@@ -413,7 +413,12 @@ if __name__ == "__main__":
         logging.basicConfig(level=logging.WARN, stream=sys.stdout, format=FORMAT)
 
     #session_bus = dbus.SessionBus()
-    system_bus = dbus.SystemBus()
+    try:
+        system_bus = dbus.SystemBus()
+    except dbus.exceptions.DBusException as e:
+        if e.get_dbus_name() == "org.freedesktop.DBus.Error.FileNotFound":
+            log.warn("Cannot contact the system D-Bus server, is it running? The error is: %s", e.get_dbus_message())
+        sys.exit(1)
 
     # Get a proxy to the system login object
     login_obj = system_bus.get_object("org.freedesktop.login1", "/org/freedesktop/login1")
@@ -508,3 +513,5 @@ if __name__ == "__main__":
     else:
         log.info("The current session is local and active: shutdown, suspend, network-manager and so on"
                  " should be ok")
+
+    sys.exit(0)
