@@ -24,7 +24,7 @@ system_bus = None
 
 def format_elapsed(seconds):
     if seconds > 86400:
-        return "{}h".format(round(seconds / 86400))
+        return "{}d".format(round(seconds / 86400))
     elif seconds > 3600:
         return "{}h".format(round(seconds / 3600))
     elif seconds > 60:
