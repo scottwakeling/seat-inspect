@@ -412,7 +412,7 @@ if __name__ == "__main__":
     else:
         logging.basicConfig(level=logging.WARN, stream=sys.stdout, format=FORMAT)
 
-    session_bus = dbus.SessionBus()
+    #session_bus = dbus.SessionBus()
     system_bus = dbus.SystemBus()
 
     # Get a proxy to the system login object
