@@ -107,7 +107,7 @@ class Seat:
         if self.can_multisession:
             desc.append("multisession")
         else:
-            desc.appned("no multisession")
+            desc.append("no multisession")
 
         if self.can_tty:
             desc.append("has tty")
