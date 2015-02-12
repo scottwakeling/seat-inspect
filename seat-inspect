@@ -23,6 +23,9 @@ log = logging.getLogger()
 
 system_bus = None
 
+def format_usec_since_epoch(usec):
+    return datetime.datetime.fromtimestamp(usec / 1000000).strftime('%Y-%m-%d %H:%M:%S')
+
 def format_elapsed(seconds):
     if seconds > 86400:
         return "{}d".format(round(seconds / 86400))
@@ -80,7 +83,6 @@ class Seat:
         # specific for this seat
         self.idle_hint = bool(self.dbus_props["IdleHint"])
         self.idle_since_hint = self.dbus_props["IdleSinceHint"]
-        self.idle_since_hint_monotonic = self.dbus_props["IdleSinceHintMonotonic"]
 
     def log_summary(self, prefix=" - "):
         """
@@ -121,7 +123,7 @@ class Seat:
             desc.append("non graphical")
 
         # Format idle time
-        desc.append("idle: {} since {} {}".format(self.idle_hint, self.idle_since_hint, self.idle_since_hint_monotonic))
+        desc.append("idle: {} since {}".format(self.idle_hint, format_usec_since_epoch(self.idle_since_hint)))
 
         log.info("%s%s", prefix, ", ".join(desc))
 
@@ -152,12 +154,10 @@ class User:
 
         # The Name property encodes the user name.
 
-        # Timestamp and TimestampMonotonic encode the login time of the user in
-        # usec since the epoch, in the CLOCK_REALTIME resp. CLOCK_MONOTONIC
-        # clocks.
+        # Timestamp encodes the login time of the user in
+        # usec since the epoch, in the CLOCK_REALTIME clock.
         self.timestamp = self.dbus_props["Timestamp"]
-        self.timestamp_monotonic = self.dbus_props["TimestampMonotonic"]
-
+        
         # RuntimePath encodes the runtime path of the user, i.e.
         # $XDG_RUNTIME_DIR, for details see the XDG Basedir Specification.
         #
@@ -209,7 +209,6 @@ class User:
         # but specific for this user.
         self.idle_hint = bool(self.dbus_props["IdleHint"])
         self.idle_since_hint = self.dbus_props["IdleSinceHint"]
-        self.idle_since_hint_monotonic = self.dbus_props["IdleSinceHintMonotonic"]
 
     def log_summary(self, prefix=" - "):
         desc = []
@@ -227,7 +226,7 @@ class User:
         desc = []
         elapsed = time.time() - self.timestamp / 1000000
         desc.append("login time: " + format_elapsed(elapsed))
-        desc.append("idle: {} since {} {}".format(self.idle_hint, self.idle_since_hint, self.idle_since_hint_monotonic))
+        desc.append("idle: {} since {}".format(self.idle_hint, format_usec_since_epoch(self.idle_since_hint)))
         log.info("%s%s", prefix, ", ".join(desc))
 
         desc = []
@@ -280,11 +279,9 @@ class Session:
                                                dbus_interface="org.freedesktop.DBus.Properties")
 
 
-        # Timestamp and TimestampMonotonic encode the usec timestamp since the
-        # epoch when the session was created, in CLOCK_REALTIME resp.
-        # CLOCK_MONOTONIC.
+        # Timestamp encodes the usec timestamp since the
+        # epoch when the session was created, in the CLOCK_REALTIME clock.
         self.timestamp = self.dbus_props["Timestamp"]
-        self.timestamp_monotonic = self.dbus_props["TimestampMonotonic"]
 
         # Seat encodes the seat this session belongs to, if there is any. This
         # is a structure consisting of the ID and the seat object path.
@@ -352,7 +349,6 @@ class Session:
         # on the manager object do it for the whole system.
         self.idle_hint = bool(self.dbus_props["IdleHint"])
         self.idle_since_hint = self.dbus_props["IdleSinceHint"]
-        self.idle_since_hint_monotonic = self.dbus_props["IdleSinceHintMonotonic"]
 
     def log_summary(self, prefix=" - "):
         desc = []
@@ -378,7 +374,7 @@ class Session:
         desc = []
         elapsed = time.time() - self.timestamp / 1000000
         desc.append("age: " + format_elapsed(elapsed))
-        desc.append("idle: {} since {} {}".format(self.idle_hint, self.idle_since_hint, self.idle_since_hint_monotonic))
+        desc.append("idle: {} since {}".format(self.idle_hint, format_usec_since_epoch(self.idle_since_hint)))
         log.info("%s%s", prefix, ", ".join(desc))
 
         desc = []
@@ -490,8 +486,7 @@ if __name__ == "__main__":
     else:
         log.info("No inhibitor locks currently present.")
 
-    lastIdleTime = datetime.datetime.fromtimestamp(login_props.get("IdleSinceHint", None) / 1000000).strftime('%Y-%m-%d %H:%M:%S')
-    log.info("System idle: %s since %s", login_props.get("IdleHint", None), lastIdleTime)
+    log.info("System idle: %s since %s", login_props.get("IdleHint", None), format_usec_since_epoch(login_props.get("IdleSinceHint", None)))
     log.info("Active block locks: %s", login_props.get("BlockInhibited", None))
     log.info("Active delay locks: %s", login_props.get("DelayInhibited", None))
     log.info("Preparing for shutdown: %s", login_props.get("PreparingForShutdown", None))
