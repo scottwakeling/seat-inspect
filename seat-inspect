@@ -24,6 +24,7 @@ log = logging.getLogger()
 system_bus = None
 
 def format_usec_since_epoch(usec):
+    if usec == 0: return "--"
     return datetime.datetime.fromtimestamp(usec / 1000000).strftime('%Y-%m-%d %H:%M:%S')
 
 def format_elapsed(seconds):
@@ -157,7 +158,7 @@ class User:
         # Timestamp encodes the login time of the user in
         # usec since the epoch, in the CLOCK_REALTIME clock.
         self.timestamp = self.dbus_props["Timestamp"]
-        
+
         # RuntimePath encodes the runtime path of the user, i.e.
         # $XDG_RUNTIME_DIR, for details see the XDG Basedir Specification.
         #
