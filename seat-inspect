@@ -17,6 +17,7 @@ from collections import namedtuple
 import sys
 import os
 import time
+import datetime
 
 log = logging.getLogger()
 
@@ -489,7 +490,8 @@ if __name__ == "__main__":
     else:
         log.info("No inhibitor locks currently present.")
 
-    log.info("System idle: %s since %s %s", login_props.get("IdleHint", None), login_props.get("IdleSinceHint", None), login_props.get("IdleSinceHintMonotonic", None))
+    lastIdleTime = datetime.datetime.fromtimestamp(login_props.get("IdleSinceHint", None) / 1000000).strftime('%Y-%m-%d %H:%M:%S')
+    log.info("System idle: %s since %s", login_props.get("IdleHint", None), lastIdleTime)
     log.info("Active block locks: %s", login_props.get("BlockInhibited", None))
     log.info("Active delay locks: %s", login_props.get("DelayInhibited", None))
     log.info("Preparing for shutdown: %s", login_props.get("PreparingForShutdown", None))
