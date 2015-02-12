@@ -232,8 +232,6 @@ class User:
 
         desc = []
         desc.append("XDG_RUNTIME_DIR: {}".format(self.runtime_path))
-        desc.append("systemd service: {}".format(self.service))
-        desc.append("systemd slice: {}".format(self.slice))
         log.info("%s%s", prefix, ", ".join(desc))
 
         desc = []
@@ -245,6 +243,10 @@ class User:
             "closing": "user not logged in, and not lingering, but some processes are still around",
         }
         log.info("%sstate: %s (%s)", prefix, self.state, state_desc.get(self.state, "description unknown"))
+
+        log.info("%s$ loginctl user-status %s # user status", prefix, self.name)
+        log.info("%s$ systemctl status %s # service status", prefix, self.service)
+        log.info("%s$ systemctl status %s # slice status", prefix, self.service)
 
 
 # A session is defined by the time a user is logged in until he logs out. A
@@ -358,7 +360,6 @@ class Session:
         desc.append("class: {}".format(self.session_class))
         desc.append("uid: {}".format(self.uid))
         desc.append("user: {}".format(self.user))
-        desc.append("seat: {}".format(self.seat_id))
         desc.append("tty: {}".format(self.tty))
         desc.append("display: {}".format(self.display))
         log.info("%s%s", prefix, ", ".join(desc))
@@ -376,12 +377,7 @@ class Session:
         elapsed = time.time() - self.timestamp / 1000000
         desc.append("age: " + format_elapsed(elapsed))
         desc.append("idle: {} since {}".format(self.idle_hint, format_usec_since_epoch(self.idle_since_hint)))
-        log.info("%s%s", prefix, ", ".join(desc))
-
-        desc = []
         desc.append("leader pid: {}".format(self.leader))
-        desc.append("service: {}".format(self.service))
-        desc.append("scope: {}".format(self.scope))
         desc.append("audit: {}".format(self.audit))
         log.info("%s%s", prefix, ", ".join(desc))
 
@@ -395,6 +391,11 @@ class Session:
         }
         desc.append("state: {} ({})".format(self.state, state_desc.get(self.state, "description unknown")))
         log.info("%s%s", prefix, ", ".join(desc))
+
+        log.info("%s$ loginctl session-status %s # session status", prefix, self.id)
+        log.info("%s$ loginctl seat-status %s # seat status", prefix, self.seat_id)
+        log.info("%s$ systemctl status %s # service status", prefix, self.service)
+        log.info("%s$ systemctl status %s # scope status", prefix, self.scope)
 
 
 Inhibitor = namedtuple("Inhibitor", ("what", "who", "why", "mode", "uid", "pid"))
