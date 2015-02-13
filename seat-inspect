@@ -92,7 +92,7 @@ class Seat:
         desc = []
 
         # Format ID
-        desc.append("id: {}".format(seat.id))
+        desc.append("id: {}".format(self.id))
 
         # Format list of available session, marking the active one with an
         # asterisk
@@ -400,7 +400,9 @@ class Session:
 
 Inhibitor = namedtuple("Inhibitor", ("what", "who", "why", "mode", "uid", "pid"))
 
-if __name__ == "__main__":
+def main():
+    global system_bus
+
     parser = argparse.ArgumentParser(description='Inspect the seat API.')
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     args = parser.parse_args()
@@ -514,3 +516,6 @@ if __name__ == "__main__":
                  " should be ok")
 
     sys.exit(0)
+
+if __name__ == "__main__":
+    main()
