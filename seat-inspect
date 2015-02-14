@@ -141,7 +141,7 @@ class User:
         self.name = name
         self.path = path
 
-        # Get the seat object from the login manager
+        # Get the user object from the login manager
         self.dbus_obj = system_bus.get_object("org.freedesktop.login1", self.path)
         # Read the user API properties of the object, using the D-Bus
         # properties API
@@ -246,7 +246,7 @@ class User:
 
         log.info("%s$ loginctl user-status %s # user status", prefix, self.name)
         log.info("%s$ systemctl status %s # service status", prefix, self.service)
-        log.info("%s$ systemctl status %s # slice status", prefix, self.service)
+        log.info("%s$ systemctl status %s # slice status", prefix, self.slice)
 
 
 # A session is defined by the time a user is logged in until he logs out. A
@@ -274,7 +274,7 @@ class Session:
         self.seat_id = seat_id
         self.path = path
 
-        # Get the seat object from the login manager
+        # Get the session object from the login manager
         self.dbus_obj = system_bus.get_object("org.freedesktop.login1", self.path)
         # Read the user API properties of the object, using the D-Bus
         # properties API
