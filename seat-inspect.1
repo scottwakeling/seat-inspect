@@ -1,0 +1,54 @@
+.TH seat-inspect 1 "February 2015"
+.SH NAME
+seat-inspect \- Understand and troubleshoot the login/seat system.
+
+.SH SYNOPSIS
+.B seat-inspect
+[
+.B -h, \-\-help
+]
+
+.B seat-inspect
+[
+.B -v, \-\-verbose
+]
+
+.SH DESCRIPTION
+
+.PP
+seat\-inspect tries to make the status of the login/seat system visible,
+to help with understanding and troubleshooting.
+.PP
+The intent of running the code is to have an overview of the system
+status, both to see what the new facilities are about, and to figure out
+if there is something out of place.
+.PP
+The intent of reading the code is to have an idea of how to use these
+facilities: the code has been written to be straightforward and is
+annotated with relevant bits from the logind API
+documentation (http://www.freedesktop.org/wiki/Softwar%20e/systemd/logind/).
+.PP
+See also
+here (http://www.freedesktop.org/wiki/Software/systemd/multiseat/) for
+general definitions.
+.PP
+seat\-inspect is not a finished tool, but a starting point.
+I put it on github hoping that people will fork it and add their own
+extra sanity checks and warnings, so that it can grow into a standard
+thing to run if a system acts weird.
+.PP
+As it is now, it should be able to issue warnings if some bits are
+missing for network\-manager or shutdown functions to work correctly.
+I haven't really tested that, though, because I don't have a system at
+hand where they are currently not working fine.
+.PP
+Another nice thing of it is that when running
+\f[C]seat\-inspect\ \-v\f[] you get a dump of what logind/consolekit
+think about your system.
+I found it an interesting way to explore the new functionalities that we
+recently grew.
+The same can be done, and in more details, with \f[C]loginctl\f[] calls,
+but I lacked a summary.
+
+.SH AUTHOR
+Enrico Zini (enrico@debian.org)
