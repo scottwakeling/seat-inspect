@@ -141,7 +141,7 @@ class User:
         self.name = name
         self.path = path
 
-        # Get the seat object from the login manager
+        # Get the user object from the login manager
         self.dbus_obj = system_bus.get_object("org.freedesktop.login1", self.path)
         # Read the user API properties of the object, using the D-Bus
         # properties API
@@ -246,7 +246,7 @@ class User:
 
         log.info("%s$ loginctl user-status %s # user status", prefix, self.name)
         log.info("%s$ systemctl status %s # service status", prefix, self.service)
-        log.info("%s$ systemctl status %s # slice status", prefix, self.service)
+        log.info("%s$ systemctl status %s # slice status", prefix, self.slice)
 
 
 # A session is defined by the time a user is logged in until he logs out. A
@@ -274,7 +274,7 @@ class Session:
         self.seat_id = seat_id
         self.path = path
 
-        # Get the seat object from the login manager
+        # Get the session object from the login manager
         self.dbus_obj = system_bus.get_object("org.freedesktop.login1", self.path)
         # Read the user API properties of the object, using the D-Bus
         # properties API
@@ -398,7 +398,159 @@ class Session:
         log.info("%s$ systemctl status %s # scope status", prefix, self.scope)
 
 
+# Job objects encapsulate scheduled or running jobs. Each unit can have none
+# or one jobs in the execution queue. Each job is attached to exactly one unit.
+class Job:
+    """
+    Get and hold information about a systemd Job object
+    """
+    def __init__(self, id, unit_name, type, state, path, unit_path):
+        # Id is the numeric Id of the job
+        self.id = id
+        # Name of the unit this job belongs to
+        self.unit_name = unit_name
+        # One of start, verify-active, stop, reload, restart, try-restart, reload-or-start
+        self.type = type
+        # One of waiting, running
+        self.state = state
+        # Job object path
+        self.path = path
+        # Unit object path
+        self.unit_path = unit_path
+
+    def log_summary(self, prefix=" - "):
+        desc = []
+        desc.append("id: {}".format(self.id))
+        desc.append("unit_name: {}".format(self.unit_name))
+        desc.append("type: {}".format(self.type))
+        desc.append("state: {}".format(self.state))
+        desc.append("path: {}".format(self.path))
+        desc.append("unit_path: {}".format(self.unit_path))
+        log.info("%s%s", prefix, ", ".join(desc))
+
+
+
+# A systemd unit can be a service, socket, device, mount point, automount point,
+# swap file or partition, start-up target, watched file system path, timer controlled
+# and supervised by systemd(1), temporary system state snapshot, resource management
+# slice.. or a group of externally created processes..
+class Unit:
+    """
+    Get and hold information about a systemd Unit object
+    """
+    def __init__(self,
+                 unit_name,
+                 desc,
+                 loaded,
+                 state,
+                 sub_state,
+                 followed,
+                 obj_path,
+                 queued_job_id,
+                 job_type,
+                 job_obj_path):
+        # The primary unit name as a string
+        self.unit_name = unit_name
+        # The human readable description string
+        self.desc = desc
+        # The load state (i.e. whether the unit file has been loaded successfully)
+        #  - loaded, error, or masked
+        self.loaded = loaded
+        # The active state (i.e. whether the unit is currently started or not)
+        #  (one of: active, reloading, inactive, failed, activating, deactivating)
+        self.state = state
+        # A finer-grained version of the active state, specific to the unit type
+        self.sub_state = sub_state
+        # Unit being followed in its state by this unit, otherwise the empty string
+        self.followed = followed
+        # The unit object path
+        self.obj_path = obj_path
+        # If there is a job queued for the job unit the numeric job id, 0 otherwise
+        self.queued_job_id = queued_job_id
+        # The job type as string
+        self.job_type = job_type
+        # The job object path
+        self.job_obj_path = job_obj_path
+        # Not yet diagnosed..
+        self.diagnosed = False
+
+    def log_summary(self, prefix=" - "):
+        desc = []
+        desc.append("{}".format(self.unit_name))
+        #desc.append("{}".format(self.desc))
+        desc.append("({}".format(self.loaded))
+        desc.append("{}".format(self.state))
+        desc.append("{})".format(self.sub_state))
+        #desc.append("followed: {}".format(self.followed))
+        #desc.append("obj_path: {}".format(self.obj_path))
+        #desc.append("queued_job_id: {}".format(self.queued_job_id))
+        #desc.append("job_type: {}".format(self.job_type))
+        #desc.append("job_obj_path: {}".format(self.job_obj_path))
+        if (self.diagnosed):
+            desc.append("result: {}".format(self.result))
+            desc.append("since: {}".format(self.inactive_since))
+        log.info("%s%s", prefix, " ".join(desc))
+
+    # TODO: Diagnose types of Unit other than Service..
+    def diagnose(self):
+            try:
+                self.dbus_obj = system_bus.get_object("org.freedesktop.systemd1", self.obj_path)
+                self.dbus_service_props = self.dbus_obj.GetAll("org.freedesktop.systemd1.Service",
+                                                       dbus_interface="org.freedesktop.DBus.Properties")
+                self.dbus_unit_props = self.dbus_obj.GetAll("org.freedesktop.systemd1.Unit",
+                                                       dbus_interface="org.freedesktop.DBus.Properties")
+                # TODO: log more, journald frags
+                #  - dbus equivalent to 'sudo systemctl status $SERVICE'
+
+                # Result encodes the execution result of the last run of the service:
+                #  - 'success' - set if the unit didn't fail
+                #  - 'resources' - not enough resources to fork and exec the service processes
+                #  - 'timeout' - time-out occurred while executing a service operation
+                #  - 'exit-code' - process exited with an unclean exit code
+                #  - 'signal' - process exited with an uncaught signal
+                #  - 'core-dump' - process exited uncleanly and dumped core
+                #  - 'watchdog' - did not send out watchdog ping messages often enough
+                #  - 'start-limit' - started too frequently (see StartLimitInterval/Burst)
+                self.result = self.dbus_service_props["Result"]
+                # Timestamp when state moved from deactivating → inactive/failed
+                self.inactive_since = format_usec_since_epoch(self.dbus_unit_props["InactiveEnterTimestamp"])
+                self.diagnosed = True;
+            except dbus.exceptions.DBusException as e:
+                if e.get_dbus_name() == "org.freedesktop.DBus.Error.UnknownInterface":
+                    log.warn("Failed to diagnose. The error is: %s", e.get_dbus_message())
+
+
 Inhibitor = namedtuple("Inhibitor", ("what", "who", "why", "mode", "uid", "pid"))
+
+
+def log_systemd_summary():
+    global system_bus
+    sysd_obj = system_bus.get_object("org.freedesktop.systemd1", "/org/freedesktop/systemd1")
+    sysd_iface = dbus.Interface(sysd_obj, dbus_interface="org.freedesktop.systemd1.Manager")
+    sysd_props = sysd_obj.GetAll("org.freedesktop.systemd1.Manager", dbus_interface="org.freedesktop.DBus.Properties")
+    log.info("Running Jobs:")
+    jobs = {}
+    for job in (Job(*x) for x in sysd_iface.ListJobs()):
+        jobs[job.path] = job
+        job.log_summary()
+    if not jobs:
+        log.info("No jobs running.")
+
+    log.info("Failed Units:")
+    units = {}
+    for unit in (Unit(*x) for x in sysd_iface.ListUnits()):
+        # 'failed' indicates that it is inactive and the previous run was not successful
+        # 'error' indicates that the configuration file failed to load
+        if (unit.state == "failed"
+            or unit.sub_state == "failed"
+            or unit.loaded == "error"
+        ):
+            units[unit.unit_name] = unit
+            unit.diagnose()
+            unit.log_summary()
+    if not units:
+        log.info("No 'failed' units. Everything seems ok.")
+
 
 def main():
     global system_bus
@@ -514,6 +666,9 @@ def main():
     else:
         log.info("The current session is local and active: shutdown, suspend, network-manager and so on"
                  " should be ok")
+
+    # Log running Jobs and diagnostics on failed Services (TODO: and other Unit types..)
+    log_systemd_summary()
 
     sys.exit(0)
 
