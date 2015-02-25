@@ -18,10 +18,11 @@ import sys
 import os
 import time
 import datetime
+from systemd import journal
 
 log = logging.getLogger()
-
 system_bus = None
+journal_reader = None
 
 def format_usec_since_epoch(usec):
     if usec == 0: return "--"
@@ -471,8 +472,6 @@ class Unit:
         self.job_type = job_type
         # The job object path
         self.job_obj_path = job_obj_path
-        # Not yet diagnosed..
-        self.diagnosed = False
 
     def log_summary(self, prefix=" - "):
         desc = []
@@ -486,44 +485,69 @@ class Unit:
         #desc.append("queued_job_id: {}".format(self.queued_job_id))
         #desc.append("job_type: {}".format(self.job_type))
         #desc.append("job_obj_path: {}".format(self.job_obj_path))
-        if (self.diagnosed):
-            desc.append("result: {}".format(self.result))
-            desc.append("since: {}".format(self.inactive_since))
+
+        try:
+            # TODO: Diagnose types of Unit other than Service
+            self.dbus_obj = system_bus.get_object("org.freedesktop.systemd1", self.obj_path)
+            self.dbus_service_props = self.dbus_obj.GetAll("org.freedesktop.systemd1.Service",
+                                                   dbus_interface="org.freedesktop.DBus.Properties")
+            self.dbus_unit_props = self.dbus_obj.GetAll("org.freedesktop.systemd1.Unit",
+                                                   dbus_interface="org.freedesktop.DBus.Properties")
+
+            # Result encodes the execution result of the last run of the service:
+            #  - 'success' - set if the unit didn't fail
+            #  - 'resources' - not enough resources to fork and exec the service processes
+            #  - 'timeout' - time-out occurred while executing a service operation
+            #  - 'exit-code' - process exited with an unclean exit code
+            #  - 'signal' - process exited with an uncaught signal
+            #  - 'core-dump' - process exited uncleanly and dumped core
+            #  - 'watchdog' - did not send out watchdog ping messages often enough
+            #  - 'start-limit' - started too frequently (see StartLimitInterval/Burst)
+            self.result = self.dbus_service_props["Result"]
+
+            # Timestamp when state moved from deactivating → inactive/failed
+            self.inactive_since = format_usec_since_epoch(self.dbus_unit_props["InactiveEnterTimestamp"]) 
+        except dbus.exceptions.DBusException as e:
+            if e.get_dbus_name() == "org.freedesktop.DBus.Error.UnknownInterface":
+                log.warn("Failed to diagnose. The error is: %s", e.get_dbus_message())
+        
+        desc.append("result: {}".format(self.result))
+        desc.append("since: {}".format(self.inactive_since))
         log.info("%s%s", prefix, " ".join(desc))
 
-    # TODO: Diagnose types of Unit other than Service..
-    def diagnose(self):
-            try:
-                self.dbus_obj = system_bus.get_object("org.freedesktop.systemd1", self.obj_path)
-                self.dbus_service_props = self.dbus_obj.GetAll("org.freedesktop.systemd1.Service",
-                                                       dbus_interface="org.freedesktop.DBus.Properties")
-                self.dbus_unit_props = self.dbus_obj.GetAll("org.freedesktop.systemd1.Unit",
-                                                       dbus_interface="org.freedesktop.DBus.Properties")
-                # TODO: log more, journald frags
-                #  - dbus equivalent to 'sudo systemctl status $SERVICE'
-
-                # Result encodes the execution result of the last run of the service:
-                #  - 'success' - set if the unit didn't fail
-                #  - 'resources' - not enough resources to fork and exec the service processes
-                #  - 'timeout' - time-out occurred while executing a service operation
-                #  - 'exit-code' - process exited with an unclean exit code
-                #  - 'signal' - process exited with an uncaught signal
-                #  - 'core-dump' - process exited uncleanly and dumped core
-                #  - 'watchdog' - did not send out watchdog ping messages often enough
-                #  - 'start-limit' - started too frequently (see StartLimitInterval/Burst)
-                self.result = self.dbus_service_props["Result"]
-                # Timestamp when state moved from deactivating → inactive/failed
-                self.inactive_since = format_usec_since_epoch(self.dbus_unit_props["InactiveEnterTimestamp"])
-                self.diagnosed = True;
-            except dbus.exceptions.DBusException as e:
-                if e.get_dbus_name() == "org.freedesktop.DBus.Error.UnknownInterface":
-                    log.warn("Failed to diagnose. The error is: %s", e.get_dbus_message())
+        # Log relevant journal entries
+        journal_reader.add_match(UNIT=self.unit_name) 
+        for entry in journal_reader:
+            frag = "{} {} {}[{}]: {}".format(
+                    entry['_SOURCE_REALTIME_TIMESTAMP'].strftime("%Y-%m-%d %H:%M:%S"),
+                    entry['_HOSTNAME'],
+                    entry['_COMM'],
+                    str(entry['_PID']),
+                    entry['MESSAGE'])
+            log.info("\t%s%s", prefix, frag)
 
 
 Inhibitor = namedtuple("Inhibitor", ("what", "who", "why", "mode", "uid", "pid"))
 
 
-def log_systemd_summary():
+def log_failed_services():
+    global system_bus
+    sysd_obj = system_bus.get_object("org.freedesktop.systemd1", "/org/freedesktop/systemd1")
+    sysd_iface = dbus.Interface(sysd_obj, dbus_interface="org.freedesktop.systemd1.Manager")
+    log.info("Failed Units:")
+    units = {}
+    for unit in (Unit(*x) for x in sysd_iface.ListUnits()):
+        # 'failed' indicates that it is inactive and the previous run was not successful
+        # 'error' indicates that the configuration file failed to load
+        if (unit.state == "failed" or
+                unit.sub_state == "failed" or
+                unit.loaded == "error"):
+            units[unit.unit_name] = unit
+            unit.log_summary()
+    if not units:
+        log.info("No 'failed' units. Everything seems ok.")
+
+def log_running_jobs():
     global system_bus
     sysd_obj = system_bus.get_object("org.freedesktop.systemd1", "/org/freedesktop/systemd1")
     sysd_iface = dbus.Interface(sysd_obj, dbus_interface="org.freedesktop.systemd1.Manager")
@@ -536,24 +560,9 @@ def log_systemd_summary():
     if not jobs:
         log.info("No jobs running.")
 
-    log.info("Failed Units:")
-    units = {}
-    for unit in (Unit(*x) for x in sysd_iface.ListUnits()):
-        # 'failed' indicates that it is inactive and the previous run was not successful
-        # 'error' indicates that the configuration file failed to load
-        if (unit.state == "failed"
-            or unit.sub_state == "failed"
-            or unit.loaded == "error"
-        ):
-            units[unit.unit_name] = unit
-            unit.diagnose()
-            unit.log_summary()
-    if not units:
-        log.info("No 'failed' units. Everything seems ok.")
-
-
 def main():
     global system_bus
+    global journal_reader
 
     parser = argparse.ArgumentParser(description='Inspect the seat API.')
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
@@ -565,6 +574,13 @@ def main():
     else:
         logging.basicConfig(level=logging.WARN, stream=sys.stdout, format=FORMAT)
 
+    # The systemd journal could contain entries for other machines and/or previous
+    # boots, but we only care about the last boot on this machine..
+    journal_reader = journal.Reader()
+    journal_reader.this_boot()
+    journal_reader.this_machine()
+    journal_reader.log_level(journal.LOG_INFO)
+    
     try:
         # Get a private connection to the D-Bus daemon
         system_bus = dbus.bus.BusConnection(dbus.bus.BusConnection.TYPE_SYSTEM)
@@ -667,9 +683,13 @@ def main():
         log.info("The current session is local and active: shutdown, suspend, network-manager and so on"
                  " should be ok")
 
-    # Log running Jobs and diagnostics on failed Services (TODO: and other Unit types..)
-    log_systemd_summary()
+    # Log running Jobs
+    log_running_jobs()
 
+    # Help diagnose failed Services 
+    log_failed_services()
+
+    journal_reader.close()
     sys.exit(0)
 
 if __name__ == "__main__":
