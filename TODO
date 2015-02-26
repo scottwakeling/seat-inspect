@@ -1,11 +1,6 @@
 TODO
 
 - Graceful early out if systemd is not running
-- Augment failed service journal frags with Message Catalog entries
-  o See 'Message Catalog Developer Documentation'
-    http://www.freedesktop.org/wiki/Software/systemd/catalog
-      (see also 'journalctl -x')
-  o warn non-root users if not members of systemd-journal group
 - Inspect some other Unit types; mounts, targets etc.
 - Abbreviated inspection by default (errors), -v for much more data (info)
 - systemd help text in output, not just code comments (e.g. 'run systemctl foo to bar' etc.)

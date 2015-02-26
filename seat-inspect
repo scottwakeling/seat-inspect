@@ -525,7 +525,10 @@ class Unit:
                     "can see journal entries. *")
 
         # Log relevant journal entries (fails quietly if no permissions)
-        journal_reader.add_match(UNIT=self.unit_name) 
+        journal_reader.flush_matches()
+        journal_reader.add_match(UNIT=self.unit_name)
+        journal_reader.add_disjunction()
+        journal_reader.add_match(_SYSTEMD_UNIT=self.unit_name)
         for entry in journal_reader:
             frag = "{} {} {}[{}]: {}".format(
                     entry['_SOURCE_REALTIME_TIMESTAMP'].strftime("%Y-%m-%d %H:%M:%S"),
@@ -534,6 +537,13 @@ class Unit:
                     str(entry['_PID']),
                     entry['MESSAGE'])
             log.info("\t%s%s", prefix, frag)
+            # Log the related Message Catalog entry if available
+            if ('MESSAGE_ID' in entry):
+                msg_cat = journal_reader.get_catalog()
+                msg_cat = msg_cat.replace("\n\n", "\n")
+                msg_cat = msg_cat.replace("\n", "\n\t\t{}".format(prefix), msg_cat.count('\n') - 1)
+                msg_cat = msg_cat[:-1]
+                log.info("\t\t%s%s", prefix, msg_cat)
 
 
 Inhibitor = namedtuple("Inhibitor", ("what", "who", "why", "mode", "uid", "pid"))
