@@ -10,7 +10,6 @@
 # http://www.freedesktop.org/wiki/Software/systemd/multiseat/
 # http://www.freedesktop.org/wiki/Software/systemd/logind/
 
-import dbus
 import argparse
 import logging
 from collections import namedtuple
@@ -18,6 +17,9 @@ import sys
 import os
 import time
 import datetime
+import grp
+#
+import dbus
 from systemd import journal
 
 log = logging.getLogger()
@@ -515,7 +517,14 @@ class Unit:
         desc.append("since: {}".format(self.inactive_since))
         log.info("%s%s", prefix, " ".join(desc))
 
-        # Log relevant journal entries
+        # Log a warning if this user's not allowed to see journal entries
+        sj_gid = grp.getgrnam('systemd-journal').gr_gid
+        root_gid = grp.getgrnam('root').gr_gid
+        if (root_gid not in os.getgroups() and sj_gid not in os.getgroups()):
+            log.info("\t* Only root and systemd-journal group members "
+                    "can see journal entries. *")
+
+        # Log relevant journal entries (fails quietly if no permissions)
         journal_reader.add_match(UNIT=self.unit_name) 
         for entry in journal_reader:
             frag = "{} {} {}[{}]: {}".format(
