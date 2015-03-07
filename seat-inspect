@@ -26,6 +26,24 @@ from systemd import journal
 log = logging.getLogger()
 system_bus = None
 journal_reader = None
+args = None
+
+class ColourCode: 
+    BLUE = '\033[94m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
+def colour_on(colour_code):
+    if not args.nocolour:
+        print(colour_code, end="")
+
+def colour_off():
+    if not args.nocolour:
+        print(ColourCode.ENDC, end="")
 
 def format_usec_since_epoch(usec):
     if usec == 0: return "--"
@@ -247,11 +265,11 @@ class User:
             "closing": "user not logged in, and not lingering, but some processes are still around",
         }
         log.info("%sstate: %s (%s)", prefix, self.state, state_desc.get(self.state, "description unknown"))
-
+        colour_on(ColourCode.YELLOW)
         log.info("%s$ loginctl user-status %s # user status", prefix, self.name)
         log.info("%s$ systemctl status %s # service status", prefix, self.service)
         log.info("%s$ systemctl status %s # slice status", prefix, self.slice)
-
+        colour_off()
 
 # A session is defined by the time a user is logged in until he logs out. A
 # session is bound to one or no seats (the latter for 'virtual' ssh logins).
@@ -395,11 +413,12 @@ class Session:
         }
         desc.append("state: {} ({})".format(self.state, state_desc.get(self.state, "description unknown")))
         log.info("%s%s", prefix, ", ".join(desc))
-
+        colour_on(ColourCode.YELLOW)
         log.info("%s$ loginctl session-status %s # session status", prefix, self.id)
         log.info("%s$ loginctl seat-status %s # seat status", prefix, self.seat_id)
         log.info("%s$ systemctl status %s # service status", prefix, self.service)
         log.info("%s$ systemctl status %s # scope status", prefix, self.scope)
+        colour_off()
 
 
 class UnitObject:
@@ -576,8 +595,13 @@ class Service(UnitObject):
         UnitObject.__init__(self, *unit)
         self.dbus_service_props = props
 
+    def failed(self):
+        return self.state == "failed" or self.sub_state == "failed" or self.loaded == "error"
+
     def log_summary(self, prefix = " - "):
-        UnitObject.log_summary(self, prefix) 
+        if (self.failed()):
+            colour_on(ColourCode.BOLD)
+        UnitObject.log_summary(self, prefix)
         # Result encodes the execution result of the last run of the service:
         #  - 'success' - set if the unit didn't fail
         #  - 'resources' - not enough resources to fork and exec the service processes
@@ -604,9 +628,8 @@ class Service(UnitObject):
 
         # 'failed' indicates that it is inactive and the previous run was not successful
         # 'error' indicates that the configuration file failed to load
-        if (self.state == "failed" or
-                self.sub_state == "failed" or
-                self.loaded == "error"):
+        if (self.failed()):
+            colour_on(ColourCode.RED)
             # Log relevant journal entries (fails quietly if no permissions)
             journal_reader.flush_matches()
             journal_reader.add_match(UNIT=self.unit_name)
@@ -627,6 +650,7 @@ class Service(UnitObject):
                     msg_cat = msg_cat.replace("\n", "\n\t\t{}".format(prefix), msg_cat.count('\n') - 1)
                     msg_cat = msg_cat[:-1]
                     log.info("\t\t\t%s%s", prefix, msg_cat)
+        colour_off()
 
 
 Inhibitor = namedtuple("Inhibitor", ("what", "who", "why", "mode", "uid", "pid"))
@@ -655,18 +679,24 @@ def enumerate_units():
 
 def log_summaries(unit_type, units):
     if not units:
-        log.info("No {}s found.".format(unit_type))
+        colour_on(ColourCode.BOLD)
+        log.info("No %ss found.", unit_type)
+        colour_off()
     else:
-        log.info("{} {}s found:".format(len(units), unit_type))
+        colour_on(ColourCode.BOLD)
+        log.info("%i %ss found:", len(units), unit_type)
+        colour_off()
         for unit in units:
             unit.log_summary("\t - ")
 
 def main():
     global system_bus
     global journal_reader
+    global args
 
     parser = argparse.ArgumentParser(description='Inspect the seat API.')
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
+    parser.add_argument("--nocolour", "-nc", action="store_true", help="No colour")
     args = parser.parse_args()
 
     FORMAT = "%(message)s"
@@ -699,38 +729,50 @@ def main():
     login_props = login_obj.GetAll("org.freedesktop.login1.Manager", dbus_interface="org.freedesktop.DBus.Properties")
 
     # List available seats
+    colour_on(ColourCode.BOLD)
     log.info("Available seats:")
+    colour_off()
     seats = {}
     for seat in (Seat(*x) for x in login_iface.ListSeats()):
         seats[seat.path] = seat
         seat.log_summary()
 
     # List currently logged in users
+    colour_on(ColourCode.BOLD)
     log.info("Users logged in:")
+    colour_off()
     users = {}
     for user in (User(*x) for x in login_iface.ListUsers()):
         users[user.path] = user
         user.log_summary()
 
     # List existing sessions
+    colour_on(ColourCode.BOLD)
     log.info("Existing sessions:")
+    colour_off()
     sessions = {}
     for session in (Session(*x) for x in login_iface.ListSessions()):
         sessions[session.path] = session
         session.log_summary()
 
     cur_session = sessions.get(login_iface.GetSessionByPID(os.getpid()), None)
+    colour_on(ColourCode.BOLD)
     log.info("Current session: %s", cur_session.id if cur_session else "unknown")
+    colour_off()
     try:
         cur_user = users.get(login_iface.GetUserByPID(os.getpid()), None)
+        colour_on(ColourCode.BOLD)
         log.info("Current user: %s", cur_user.name if cur_user else "unknown")
+        colour_off()
     except dbus.exceptions.DBusException as e:
         if e.get_dbus_name() == "org.freedesktop.DBus.Error.AccessDenied":
             log.info("GetUserByPID not supported, you are probably running logind older than v208, no big deal.")
         else:
             log.warn("GetUserByPID failed: %s (%s)", e.get_dbus_name(), e.get_dbus_message())
 
+    colour_on(ColourCode.BOLD)
     log.info("System capabilities:")
+    colour_off()
     descs = {
         "na": "not supported by hardware, kernel or drivers",
         "yes": "supported, the current user may execute it without further authentication",
@@ -753,12 +795,15 @@ def main():
         inhibitors.append(inhibitor)
 
     if inhibitors:
+        colour_on(ColourCode.BOLD)
         log.info("Current inhibitor locks:")
+        colour_off()
         for i in inhibitors:
             log.info(" - %s (%s) by %s (%s) uid %d pid %d", i.what, i.mode, i.who, i.why, i.uid, i.pid)
     else:
         log.info("No inhibitor locks currently present.")
 
+    colour_on(ColourCode.BOLD)
     log.info("System idle: %s since %s", login_props.get("IdleHint", None), format_usec_since_epoch(login_props.get("IdleSinceHint", None)))
     log.info("Active block locks: %s", login_props.get("BlockInhibited", None))
     log.info("Active delay locks: %s", login_props.get("DelayInhibited", None))
@@ -783,7 +828,7 @@ def main():
     else:
         log.info("The current session is local and active: shutdown, suspend, network-manager and so on"
                  " should be ok")
-
+    colour_off()
     enumerate_units()
     journal_reader.close()
     sys.exit(0)

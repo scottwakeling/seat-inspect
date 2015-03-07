@@ -2,5 +2,4 @@ TODO
 
 - Graceful early out if systemd is not running
 - Inspect only for errors/suspicious units etc. by default (errors), and -v for everything
-- Coloured output
 - Implement log_summary for type specific info on derived types of UnitObject
