@@ -4,14 +4,28 @@
   <HEAD>
     <TITLE>seat-inspect</TITLE>
   </HEAD>
-  <BODY onload="hideall();">
+  <BODY>
     <h1 id="seat-inspect">seat-inspect</h1>
-    <p>seat-inspect tries to make the status of the login/seat system visible, to help with understanding and troubleshooting.</p>
+    <h4>NAME</h4>
+    <p>seat-inspect - enumerate status of systemd facilities</p>
+    <h4>SYNOPSIS</h4>
+    <p>seat-inspect [params ...]</p>
+    <h4>DESCRIPTION</h4>
+    <p>seat-inspect gives a status report of systemd facilities such as Multi-Seat, Inhibitor Locks, Services, Targets, and other types of Unit.</p>
     <p>The intent of running the code is to have an overview of the system status, both to see what the new facilities are about, and to figure out if there is something out of place.</p>
-    <p>The intent of reading the code is to have an idea of how to use these facilities: the code has been written to be straightforward and is annotated with relevant bits from the <a href="http://www.freedesktop.org/wiki/Softwar%20e/systemd/logind/">logind API documentation</a>.</p>
-    <p>See also <a href="http://www.freedesktop.org/wiki/Software/systemd/multiseat/">here</a> for general definitions.</p>
-    <p>seat-inspect is not a finished tool, but a starting point. I put it on github hoping that people will fork it and add their own extra sanity checks and warnings, so that it can grow into a standard thing to run if a system acts weird.</p>
-    <p>As it is now, it should be able to issue warnings if some bits are missing for network-manager or shutdown functions to work correctly. I haven’t really tested that, though, because I don’t have a system at hand where they are currently not working fine.</p>
-    <p>Another nice thing of it is that when running <code>seat-inspect -v</code> you get a dump of what logind/consolekit think about your system. I found it an interesting way to explore the new functionalities that we recently grew. The same can be done, and in more details, with <code>loginctl</code> calls, but I lacked a summary.</p>
+    <p>The intent of reading the code is to have an idea of how to use these facilities: the code has been written to be straightforward and is annotated with relevant bits from the <a href="http://www.freedesktop.org/wiki/Software/systemd/logind/">logind</a> and <a href="http://www.freedesktop.org/wiki/Software/systemd/dbus/">systemd D-Bus</a> API documentation.</p>
+    <p>See also <a href="http://www.freedesktop.org/wiki/Software/systemd/multiseat/">here</a> for general definitions, and the Documentation for Developers section over <a href="http://www.freedesktop.org/wiki/Software/systemd/">here</a> for more detailed information.</p>
+    <h4>OPTIONS</h4>
+    <pre><code>    -v, --verbose
+        Log all available detail. Overrides the default behaviour of only
+        logging information about real or potential errors.
+
+    -nc, --nocolour
+         Disables insertion of ANSI escape codes for colour coded output.
+         Useful if you want to redirect the output for sharing.</code></pre>
+    <h4>NOTES</h4>
+    <p>seat-inspect is not a finished tool, but a starting point. Enrico Zini put the first verison on github hoping that people would fork it and add their own extra sanity checks and warnings, that it could grow not only into a standard thing to run if a system acts weird, but also a standard thing to hack on for those trying to learn more about Multi-Seat and systemd.</p>
+    <p>As it is now, it should be able to issue warnings if some bits are missing for network-manager or shutdown functions to work correctly, or if some Devices or Services are having problems. It all needs more testing by people with systems that are experiencing such issues.</p>
+    <p>Tinkering with the code can be an interesting way to explore the new functionalities that we recently grew. Ofcourse, the same can be done, and in more detail, with <code>loginctl</code>, <code>systemctl</code>, and <code>journalctl</code> calls of various configuration, but seat-inspect provides the only high-level view of everything.</p>
   </BODY>
 </HTML>
