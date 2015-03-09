@@ -3,18 +3,13 @@
 seat-inspect \- enumerate status of systemd facilities
 
 .SH SYNOPSIS
-.B seat-inspect [params \&...]
 .B seat-inspect
-[
-.B -v, \-\-verbose
-]
-[
-.B -nc, \-\-nocolour
-]
+[\fB\-v, \-\-verbose]
+[\fB\-nc, \-\-nocolour]
 
 .SH DESCRIPTION
-.PP
-seat\-inspect gives a status report of systemd facilities such as
+.B seat\-inspect
+gives a status report of systemd facilities such as
 Multi\-Seat, Inhibitor Locks, Services, Targets, and other types of
 Unit.
 .PP
@@ -25,51 +20,27 @@ if there is something out of place.
 The intent of reading the code is to have an idea of how to use these
 facilities: the code has been written to be straightforward and is
 annotated with relevant bits from the logind and systemd D-Bus API
-documentation at:
-\ \ \ \ \-http://www.freedesktop.org/wiki/Software/systemd/logind/
-\ \ \ \ \-http://www.freedesktop.org/wiki/Software/systemd/dbus/
-.PP
-See also http://www.freedesktop.org/wiki/Software/systemd/multiseat/ for
-general definitions, and the Documentation for Developers section over
-at http://www.freedesktop.org/wiki/Software/systemd/ for more detailed
-information.
+documentation.
 
-.SS OPTIONS
-.IP
+.SH OPTIONS
 .nf
-\f[C]
-\ \ \ \ \-v,\ \-\-verbose
-\ \ \ \ \ \ \ \ Log\ all\ available\ detail.\ Overrides\ the\ default\ behaviour\ of\ only
-\ \ \ \ \ \ \ \ logging\ information\ about\ real\ or\ potential\ errors.
+\-v,\ \-\-verbose
+       Log all available detail. Overrides the default behaviour of
+       only logging information about real or potential errors.
 
-\ \ \ \ \-nc,\ \-\-nocolour
-\ \ \ \ \ \ \ \ \ Disables\ insertion\ of\ ANSI\ escape\ codes\ for\ colour\ coded\ output.
-\ \ \ \ \ \ \ \ \ Useful\ if\ you\ want\ to\ redirect\ the\ output\ for\ sharing.
-\f[]
+\-nc,\ \-\-nocolour
+       Disables default insertion of ANSI escape codes for colour coded
+       output. Useful if you want to redirect the output for sharing.
 .fi
 
-.SS NOTES
+.SH NOTES
+To learn more about how \f[B]seat-inspect\f[] works, and the facilities it
+reports on, consult the following sources of documentation:
 .PP
-seat\-inspect is not a finished tool, but a starting point.
-Enrico Zini put the first verison on github hoping that people would
-fork it and add their own extra sanity checks and warnings, that it
-could grow not only into a standard thing to run if a system acts weird,
-but also a standard thing to hack on for those trying to learn more
-about Multi\-Seat and systemd.
-.PP
-As it is now, it should be able to issue warnings if some bits are
-missing for network\-manager or shutdown functions to work correctly, or
-if some Devices or Services are having problems.
-It all needs more testing by people with systems that are experiencing
-such issues.
-.PP
-Tinkering with the code can be an interesting way to explore the new
-functionalities that we recently grew.
-Ofcourse, the same can be done, and in more detail, with
-\f[C]loginctl\f[], \f[C]systemctl\f[], and \f[C]journalctl\f[] calls of
-various configuration, but seat\-inspect provides the only high\-level
-view of everything.
+.nf
+http://www.freedesktop.org/wiki/Software/systemd/logind/
+http://www.freedesktop.org/wiki/Software/systemd/dbus/
+http://www.freedesktop.org/wiki/Software/systemd/multiseat/
+http://www.freedesktop.org/wiki/Software/systemd/
+.fi
 
-.SH AUTHORS
-Enrico Zini (enrico@debian.org)
-Scott Wakeling (scott@diskfish.org)
