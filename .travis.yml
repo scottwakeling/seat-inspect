@@ -7,3 +7,5 @@ before_install:
   - sudo apt-get install python-dbus python-dbus-dev 
 install:
   - pip install python-systemd
+script:
+  - sudo python setup.py -q install
