@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/scottwakeling/seat-inspect.svg?branch=master)](https://travis-ci.org/scottwakeling/seat-inspect)
+
 # seat-inspect
 seat-inspect is a command line tool for producing status reports of systemd
 facilities such as Multi-Seat, Inhibitor Locks, Services, Targets, and other
