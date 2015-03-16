@@ -1,4 +1,5 @@
 TODO
 
 - Inspect only for errors/suspicious units etc. by default (errors), and -v for everything
-- Implement log_summary for type specific info on derived types of UnitObject
+- No XDG_SESSION when lid down on DisplayPort connection
+  - bails out without inspecting anything!

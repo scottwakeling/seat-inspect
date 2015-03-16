@@ -464,7 +464,10 @@ class UnitObject:
         desc.append("({}".format(self.loaded))
         desc.append("{}".format(self.state))
         desc.append("{})".format(self.sub_state)) 
-        log.info("%s%s", prefix, " ".join(desc)) 
+        if (self.sub_state in ["dead"]):
+            colour_on(ColourCode.RED)
+        log.info("%s%s", prefix, " ".join(desc))
+        colour_off()
 
 
 # Job objects encapsulate scheduled or running jobs. Each unit can have none
@@ -480,7 +483,8 @@ class Job(UnitObject):
 
 class Timer(UnitObject):
     """
-    Get and hold information about a systemd Timer Unit Object
+    Get and hold information about a systemd Timer Unit Object:
+        - a timer controlled and supervised by systemd, for timer-based activation
     """
     def __init__(self, unit, props):
         UnitObject.__init__(self, *unit)
@@ -500,7 +504,9 @@ class Timer(UnitObject):
 
 class Socket(UnitObject):
     """
-    Get and hold information about a systemd Socket Unit Object
+    Get and hold information about a systemd Socket Unit Object:
+        - an IPC or network socket or a file system FIFO controlled and
+        supervised by systemd, for socket-based activation
     """
     def __init__(self, unit, props):
         UnitObject.__init__(self, *unit)
@@ -517,7 +523,8 @@ class Socket(UnitObject):
 
 class Device(UnitObject):
     """
-    Get and hold information about a systemd Device Unit Object
+    Get and hold information about a systemd Device Unit Object:
+        - a device unit as exposed in the sysfs/udev(7) device tree
     """
     def __init__(self, unit, props):
         UnitObject.__init__(self, *unit)
@@ -533,64 +540,165 @@ class Device(UnitObject):
 
 class Target(UnitObject):
     """
-    Get and hold information about a systemd Target Unit Object
+    Get and hold information about a systemd Target Unit Object:
+        - a target unit of systemd, which is used for grouping units and as
+        well-known synchronization points during start-up
     """
     def __init__(self, unit, props):
         UnitObject.__init__(self, *unit)
-        self.dbus_target_props = props
+        # Target units have neither type-specific methods nor properties. 
 
 
 class Mount(UnitObject):
     """
-    Get and hold information about a systemd Mount Unit Object
+    Get and hold information about a systemd Mount Unit Object:
+        - a file system mount point controlled and supervised by systemd
     """
     def __init__(self, unit, props):
         UnitObject.__init__(self, *unit)
         self.dbus_mount_props = props
+    
+    def log_summary(self, prefix = " - "):
+        UnitObject.log_summary(self, prefix)
+        desc = []
+        for prop in ["Where", "What", "Type", "ControlGroup"]:
+            desc.append(" {}: {}".format(
+                prop, 
+                self.dbus_mount_props[prop]))
+        for line in desc:
+            log.info("\t%s%s", prefix, line)
 
 
 class Automount(UnitObject):
     """
-    Get and hold information about a systemd Automount Unit Object
+    Get and hold information about a systemd Automount Unit Object:
+        - a file system automount point controlled and supervised by systemd
     """
     def __init__(self, unit, props):
         UnitObject.__init__(self, *unit)
         self.dbus_automount_props = props
+    
+    def log_summary(self, prefix = " - "):
+        UnitObject.log_summary(self, prefix)
+        desc = []
+        for prop in ["Where"]:
+            desc.append(" {}: {}".format(
+                prop, 
+                self.dbus_automount_props[prop]))
+        for line in desc:
+            log.info("\t%s%s", prefix, line)
 
 
 class Snapshot(UnitObject):
+    """
+    Get and hold information about a systemd Snapshot Unit Object:
+        - Snapshot units are not configured via unit configuration files.
+        Nonetheless they are named similar to filenames. A unit whose name
+        ends in ".snapshot" refers to a dynamic snapshot of the
+        systemd runtime state.
+
+        - Snapshots are not configured on disk but created dynamically via
+        systemctl snapshot
+    """
     def __init__(self, unit, props):
         UnitObject.__init__(self, *unit)
         self.dbus_snapshot_props = props
 
 
 class Swap(UnitObject):
+    """
+    Get and hold information about a systemd Swap Unit Object:
+        - a swap device or file for memory paging
+    """
     def __init__(self, unit, props):
         UnitObject.__init__(self, *unit)
         self.dbus_swap_props = props
+    
+    def log_summary(self, prefix = " - "):
+        UnitObject.log_summary(self, prefix)
+        desc = []
+        for prop in ["What", "Slice", "ControlPID"]:
+            desc.append(" {}: {}".format(
+                prop, 
+                self.dbus_swap_props[prop]))
+        for line in desc:
+            log.info("\t%s%s", prefix, line)
 
 
 class Path(UnitObject):
+    """
+    Get and hold information about a systemd Path Unit Object:
+        - a path monitored by systemd, for path-based activation
+    """
     def __init__(self, unit, props):
         UnitObject.__init__(self, *unit)
         self.dbus_path_props = props
+    
+    def log_summary(self, prefix = " - "):
+        UnitObject.log_summary(self, prefix)
+        desc = []
+        for prop in ["Unit"]:
+            desc.append(" {}: {}".format(
+                prop, 
+                self.dbus_path_props[prop]))
+        for path in self.dbus_path_props["Paths"]:
+            desc.append(" Path: {} @ {}".format(
+                path[0], path[1]))
+        for line in desc:
+            log.info("\t%s%s", prefix, line)
 
 
 class Slice(UnitObject):
+    """
+    Get and hold information about a systemd Slice Unit Object:
+        - a concept for hierarchically managing resources of a group of
+        processes. This management is performed by creating a node in the
+        Linux Control Group (cgroup) tree. Units that manage processes
+        (primarily scope and service units) may be assigned to a specific
+        slice. For each slice, certain resource limits may be set that
+        apply to all processes of all units contained in that slice.
+        
+        - Slices are organized hierarchically in a tree
+    """
     def __init__(self, unit, props):
         UnitObject.__init__(self, *unit)
         self.dbus_slice_props = props
 
+    def log_summary(self, prefix = " - "):
+        UnitObject.log_summary(self, prefix)
+        desc = []
+        for prop in ["Slice", "ControlGroup"]:
+            desc.append(" {}: {}".format(
+                prop, 
+                self.dbus_slice_props[prop]))
+        for line in desc:
+            log.info("\t%s%s", prefix, line)
+
 
 class Scope(UnitObject):
+    """
+    Get and hold information about a systemd Scope Unit Object:
+        - scope units manage externally created processes
+    """
     def __init__(self, unit, props):
         UnitObject.__init__(self, *unit)
         self.dbus_scope_props = props
+    
+    def log_summary(self, prefix = " - "):
+        UnitObject.log_summary(self, prefix)
+        desc = []
+        for prop in ["Slice", "ControlGroup", "Controller"]:
+            desc.append(" {}: {}".format(
+                prop, 
+                self.dbus_scope_props[prop]))
+        for line in desc:
+            log.info("\t%s%s", prefix, line)
 
 
 class Service(UnitObject):
     """
-    Get and hold information about a systemd Service Unit Object
+    Get and hold information about a systemd Service Unit Object:
+        - a process controlled and supervised by systemd
     """
     def __init__(self, unit, props):
         UnitObject.__init__(self, *unit)
