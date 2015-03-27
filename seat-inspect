@@ -745,8 +745,12 @@ class Service(UnitObject):
             journal_reader.add_disjunction()
             journal_reader.add_match(_SYSTEMD_UNIT=self.unit_name)
             for entry in journal_reader:
+                if ('_SOURCE_REALTIME_TIMESTAMP' in entry):
+                    timestamp = entry['_SOURCE_REALTIME_TIMESTAMP'].strftime("%Y-%m-%d %H:%M:%S")
+                else:
+                    timestamp = "--"
                 frag = "{} {} {}[{}]: {}".format(
-                        entry['_SOURCE_REALTIME_TIMESTAMP'].strftime("%Y-%m-%d %H:%M:%S"),
+                        timestamp,
                         entry['_HOSTNAME'],
                         entry['_COMM'],
                         str(entry['_PID']),
